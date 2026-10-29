@@ -1,200 +1,361 @@
 
 package com.jarvis.assistant
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-private val Background = Color(0xFF06111F)
-private val Cyan = Color(0xFF36E5FF)
-private val Muted = Color(0xFF9DB5C9)
+import androidx.core.content.ContextCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                JarvisScreen()
-            }
+            JarvisScreen()
         }
     }
 }
 
 @Composable
 fun JarvisScreen() {
-    var question by remember { mutableStateOf("") }
-    var response by remember {
-        mutableStateOf("Bonjour. Je suis JARVIS, votre assistant personnel.")
+    val context = LocalContext.current
+    val messages = remember {
+        mutableStateListOf(
+            "JARVIS : Bonjour. Je suis prêt à vous écouter."
+        )
+    }
+    var userText by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("SYSTÈME EN LIGNE") }
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+
+    val recognizer = remember(context) {
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            SpeechRecognizer.createSpeechRecognizer(context)
+        } else {
+            null
+        }
+    }
+
+    fun respond(text: String) {
+        val question = text.lowercase(Locale.FRENCH)
+        val answer = when {
+            "bonjour" in question ->
+                "Bonjour. Heureux de vous retrouver."
+
+            "qui es-tu" in question || "qui es tu" in question ->
+                "Je suis JARVIS, votre assistant personnel."
+
+            "ton nom" in question ->
+                "Je m'appelle JARVIS."
+
+            "heure" in question -> {
+                val time = SimpleDateFormat(
+                    "HH:mm",
+                    Locale.FRANCE
+                ).format(Date())
+                "Il est actuellement $time."
+            }
+
+            "date" in question -> {
+                val date = SimpleDateFormat(
+                    "EEEE d MMMM yyyy",
+                    Locale.FRANCE
+                ).format(Date())
+                "Nous sommes le $date."
+            }
+
+            "merci" in question ->
+                "Avec plaisir. Je reste à votre disposition."
+
+            "au revoir" in question ->
+                "À bientôt. JARVIS reste disponible."
+
+            else ->
+                "J'ai bien reçu votre message : $text. " +
+                    "Mon intelligence artificielle complète sera ajoutée dans une prochaine étape."
+        }
+
+        messages.add("VOUS : $text")
+        messages.add("JARVIS : $answer")
+        tts?.speak(
+            answer,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "jarvis_response"
+        )
+    }
+
+    val microphonePermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "fr-FR")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Parlez à JARVIS")
+            }
+            recognizer?.startListening(intent)
+        } else {
+            status = "AUTORISATION MICRO REFUSÉE"
+        }
+    }
+
+    DisposableEffect(context, recognizer) {
+        val engine = TextToSpeech(context) { result ->
+            if (result == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.FRANCE
+            }
+        }
+        tts = engine
+        engine.language = Locale.FRANCE
+
+        recognizer?.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                status = "JE VOUS ÉCOUTE..."
+            }
+
+            override fun onBeginningOfSpeech() {
+                status = "ÉCOUTE EN COURS"
+            }
+
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+
+            override fun onEndOfSpeech() {
+                status = "ANALYSE DU MESSAGE..."
+            }
+
+            override fun onError(error: Int) {
+                status = when (error) {
+                    SpeechRecognizer.ERROR_NO_MATCH,
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+                        "AUCUNE PAROLE DÉTECTÉE"
+
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                        "AUTORISATION MICRO REQUISE"
+
+                    else -> "ÉCOUTE TERMINÉE — RÉESSAYEZ"
+                }
+            }
+
+            override fun onResults(results: Bundle?) {
+                val spokenText = results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+
+                if (!spokenText.isNullOrBlank()) {
+                    userText = spokenText
+                    respond(spokenText)
+                    status = "SYSTÈME EN LIGNE"
+                } else {
+                    status = "AUCUN MESSAGE REÇU"
+                }
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+
+        onDispose {
+            recognizer?.destroy()
+            engine.stop()
+            engine.shutdown()
+            tts = null
+        }
     }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Background
+        color = Color(0xFF07111F)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color(0xFF10283D),
-                            Background,
-                            Color(0xFF02070D)
-                        )
-                    )
-                )
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(22.dp)
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = "J.A.R.V.I.S",
-                color = Cyan,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 5.sp
+                color = Color(0xFF55DFFF),
+                fontSize = 32.sp
             )
 
             Text(
-                text = "ASSISTANT PERSONNEL INTELLIGENT",
-                color = Muted,
-                fontSize = 11.sp,
-                letterSpacing = 2.sp,
-                textAlign = TextAlign.Center
+                text = "ASSISTANT PERSONNEL",
+                color = Color.LightGray,
+                fontSize = 12.sp
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Box(
+            Text(
+                text = "◉",
+                color = Color(0xFF55DFFF),
+                fontSize = 76.sp
+            )
+
+            Text(
+                text = status,
+                color = Color(0xFF55DFFF),
+                fontSize = 13.sp
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            LazyColumn(
                 modifier = Modifier
-                    .size(190.dp)
-                    .border(
-                        width = 2.dp,
-                        brush = Brush.sweepGradient(
-                            listOf(
-                                Cyan,
-                                Color(0xFF1265A8),
-                                Color(0xFF142B48),
-                                Cyan
-                            )
-                        ),
-                        shape = CircleShape
-                    )
-                    .padding(12.dp)
-                    .border(
-                        width = 1.dp,
-                        color = Cyan.copy(alpha = 0.45f),
-                        shape = CircleShape
-                    )
+                    .weight(1f)
+                    .fillMaxWidth()
                     .background(
-                        Brush.radialGradient(
-                            listOf(
-                                Color(0xFF1A6688),
-                                Color(0xFF0A243A),
-                                Color(0xFF06111F)
-                            )
-                        ),
-                        CircleShape
-                    ),
-                contentAlignment = Alignment.Center
+                        Color(0xFF101F31),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "J",
-                    color = Cyan,
-                    fontSize = 78.sp,
-                    fontWeight = FontWeight.ExtraLight
-                )
+                items(messages) { message ->
+                    Text(
+                        text = message,
+                        color = if (message.startsWith("JARVIS"))
+                            Color(0xFF7DEBFF)
+                        else Color.White,
+                        fontSize = 15.sp
+                    )
+                }
             }
 
-            Text(
-                text = "SYSTÈME EN LIGNE",
-                color = Cyan,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
-            )
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Surface(
-                color = Color(0xFF0D2030),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = response,
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    lineHeight = 23.sp,
-                    modifier = Modifier.padding(18.dp)
-                )
-            }
-
-            OutlinedTextField(
-                value = question,
-                onValueChange = { question = it },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Écrivez à JARVIS") },
-                placeholder = { Text("Que souhaitez-vous faire ?") },
-                shape = RoundedCornerShape(14.dp),
-                singleLine = false
-            )
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicTextField(
+                    value = userText,
+                    onValueChange = { userText = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(
+                            Color(0xFF182B40),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .padding(14.dp),
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 15.sp
+                    ),
+                    singleLine = true,
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (userText.isEmpty()) {
+                                Text(
+                                    "Écris à JARVIS...",
+                                    color = Color.Gray
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = {
+                        val message = userText.trim()
+                        if (message.isNotEmpty()) {
+                            respond(message)
+                            userText = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF087EAB)
+                    )
+                ) {
+                    Text("ENVOYER")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             Button(
                 onClick = {
-                    response = if (question.isBlank()) {
-                        "Je vous écoute. Écrivez d'abord votre demande."
+                    if (recognizer == null) {
+                        status = "RECONNAISSANCE VOCALE INDISPONIBLE"
+                    } else if (
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        val intent = Intent(
+                            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+                        ).apply {
+                            putExtra(
+                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                            )
+                            putExtra(
+                                RecognizerIntent.EXTRA_LANGUAGE,
+                                "fr-FR"
+                            )
+                            putExtra(
+                                RecognizerIntent.EXTRA_PROMPT,
+                                "Parlez à JARVIS"
+                            )
+                        }
+                        recognizer.startListening(intent)
                     } else {
-                        "Votre demande : \"$question\"\n\nMon interface est prête. La connexion à une véritable IA sera ajoutée dans une prochaine étape."
+                        microphonePermission.launch(
+                            Manifest.permission.RECORD_AUDIO
+                        )
                     }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
+                modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Cyan,
-                    contentColor = Color(0xFF03111D)
-                ),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Text(
-                    text = "ENVOYER À JARVIS",
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
+                    containerColor = Color(0xFF075E79)
                 )
+            ) {
+                Text("🎙  PARLER À JARVIS")
             }
 
-            Text(
-                text = "JARVIS • PROTOTYPE 1.0",
-                color = Muted,
-                fontSize = 10.sp,
-                letterSpacing = 2.sp
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
