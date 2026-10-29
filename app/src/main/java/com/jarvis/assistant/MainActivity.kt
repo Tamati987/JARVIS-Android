@@ -1,4 +1,3 @@
-
 package com.jarvis.assistant
 
 import android.Manifest
@@ -106,10 +105,12 @@ fun JarvisScreen() {
                 "wifi" -> Intent(Settings.ACTION_WIFI_SETTINGS)
                 "bluetooth" -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
                 "camera" -> Intent("android.media.action.IMAGE_CAPTURE")
-                "calculator" -> Intent(Intent.ACTION_MAIN).addCategory("android.intent.category.APP_CALCULATOR")
+                "calculator" -> Intent(Intent.ACTION_MAIN)
+                    .addCategory("android.intent.category.APP_CALCULATOR")
                 "browser" -> Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))
                 else -> null
             }
+
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
@@ -156,21 +157,38 @@ fun JarvisScreen() {
                 }
 
                 val history = JSONArray()
-                history.put(JSONObject().put("role", "system").put(
-                    "content",
-                    "Tu es JARVIS, un assistant personnel francophone, précis, poli et concis. Tu réponds en français."
-                ))
+                history.put(
+                    JSONObject()
+                        .put("role", "system")
+                        .put(
+                            "content",
+                            "Tu es JARVIS, un assistant personnel francophone, précis, poli et concis. Tu réponds en français."
+                        )
+                )
 
                 messages.takeLast(12).forEach { line ->
                     when {
                         line.startsWith("VOUS : ") ->
-                            history.put(JSONObject().put("role", "user").put("content", line.removePrefix("VOUS : ")))
+                            history.put(
+                                JSONObject()
+                                    .put("role", "user")
+                                    .put("content", line.removePrefix("VOUS : "))
+                            )
+
                         line.startsWith("JARVIS : ") ->
-                            history.put(JSONObject().put("role", "assistant").put("content", line.removePrefix("JARVIS : ")))
+                            history.put(
+                                JSONObject()
+                                    .put("role", "assistant")
+                                    .put("content", line.removePrefix("JARVIS : "))
+                            )
                     }
                 }
 
-                history.put(JSONObject().put("role", "user").put("content", question))
+                history.put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", question)
+                )
 
                 val body = JSONObject()
                     .put("model", model)
@@ -219,29 +237,51 @@ fun JarvisScreen() {
         val q = question.lowercase(Locale.FRENCH)
 
         // MÉMOIRE LOCALE
-        val rememberPrefix = listOf("retiens que ", "souviens-toi que ", "mémorise que ", "memorise que ")
+        val rememberPrefix = listOf(
+            "retiens que ",
+            "souviens-toi que ",
+            "mémorise que ",
+            "memorise que "
+        )
         val memoryPrefix = rememberPrefix.firstOrNull { q.startsWith(it) }
 
         if (memoryPrefix != null) {
             val information = question.substring(memoryPrefix.length).trim()
             if (information.isNotBlank()) {
                 val old = prefs.getString("facts", "") ?: ""
-                val updated = (old.lines() + information).filter { it.isNotBlank() }.takeLast(100)
-                prefs.edit().putString("facts", updated.joinToString("\n")).apply()
+                val updated = (old.lines() + information)
+                    .filter { it.isNotBlank() }
+                    .takeLast(100)
+
+                prefs.edit()
+                    .putString("facts", updated.joinToString("\n"))
+                    .apply()
+
                 addReply(question, "Information enregistrée dans ma mémoire locale.")
             }
             return
         }
 
-        if (q.contains("qu'as-tu retenu") || q.contains("que sais-tu de moi") ||
-            q.contains("ma mémoire") || q.contains("ma memoire")) {
+        if (q.contains("qu'as-tu retenu") ||
+            q.contains("que sais-tu de moi") ||
+            q.contains("ma mémoire") ||
+            q.contains("ma memoire")
+        ) {
             val facts = prefs.getString("facts", "") ?: ""
-            addReply(question, if (facts.isBlank()) "Ma mémoire personnelle est encore vide. Tu peux me dire : retiens que..." else "Voici les informations mémorisées : $facts")
+            addReply(
+                question,
+                if (facts.isBlank())
+                    "Ma mémoire personnelle est encore vide. Tu peux me dire : retiens que..."
+                else
+                    "Voici les informations mémorisées : $facts"
+            )
             return
         }
 
-        if (q.contains("oublie ma mémoire") || q.contains("efface ma mémoire") ||
-            q.contains("efface ma memoire")) {
+        if (q.contains("oublie ma mémoire") ||
+            q.contains("efface ma mémoire") ||
+            q.contains("efface ma memoire")
+        ) {
             prefs.edit().remove("facts").apply()
             addReply(question, "Ma mémoire personnelle locale a été effacée.")
             return
@@ -259,34 +299,42 @@ fun JarvisScreen() {
                 "Je suis JARVIS."
 
             q.contains("heure") ->
-                "Il est actuellement " + SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date()) + "."
+                "Il est actuellement " +
+                    SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date()) + "."
 
             q.contains("date") || q.contains("quel jour") ->
-                "Nous sommes le " + SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRANCE).format(Date()) + "."
+                "Nous sommes le " +
+                    SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRANCE).format(Date()) + "."
 
-            q.contains("ouvre les paramètres") || q.contains("ouvre les parametres") ->
+            q.contains("ouvre les paramètres") ||
+                q.contains("ouvre les parametres") ->
                 openApp("settings")
 
-            q.contains("ouvre le wifi") || q.contains("ouvre le wi-fi") ->
+            q.contains("ouvre le wifi") ||
+                q.contains("ouvre le wi-fi") ->
                 openApp("wifi")
 
             q.contains("ouvre bluetooth") ->
                 openApp("bluetooth")
 
-            q.contains("ouvre la caméra") || q.contains("ouvre la camera") ->
+            q.contains("ouvre la caméra") ||
+                q.contains("ouvre la camera") ->
                 openApp("camera")
 
             q.contains("ouvre la calculatrice") ->
                 openApp("calculator")
 
-            q.contains("ouvre internet") || q.contains("ouvre le navigateur") ->
+            q.contains("ouvre internet") ||
+                q.contains("ouvre le navigateur") ->
                 openApp("browser")
 
             q.startsWith("cherche ") || q.startsWith("recherche ") -> {
                 val terms = question.substringAfter(" ").trim()
                 try {
                     val url = "https://www.google.com/search?q=" + Uri.encode(terms)
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    )
                     "Je lance la recherche sur Internet."
                 } catch (_: Exception) {
                     "Je n'arrive pas à ouvrir le navigateur."
@@ -322,7 +370,10 @@ fun JarvisScreen() {
     ) { granted ->
         if (granted) {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR")
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Parlez à JARVIS")
             }
@@ -342,24 +393,44 @@ fun JarvisScreen() {
                 }
             }
         }
+
         tts = engine
         engine.language = Locale.FRANCE
         engine.setPitch(0.78f)
         engine.setSpeechRate(0.88f)
 
         recognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { status = "JE VOUS ÉCOUTE..." }
-            override fun onBeginningOfSpeech() { status = "ÉCOUTE EN COURS" }
+            override fun onReadyForSpeech(params: Bundle?) {
+                status = "JE VOUS ÉCOUTE..."
+            }
+
+            override fun onBeginningOfSpeech() {
+                status = "ÉCOUTE EN COURS"
+            }
+
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() { status = "ANALYSE..." }
-            override fun onError(error: Int) { status = "ÉCOUTE TERMINÉE — RÉESSAYEZ" }
+
+            override fun onEndOfSpeech() {
+                status = "ANALYSE..."
+            }
+
+            override fun onError(error: Int) {
+                status = "ÉCOUTE TERMINÉE — RÉESSAYEZ"
+            }
+
             override fun onResults(results: Bundle?) {
-                val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                val spoken = results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+
                 if (!spoken.isNullOrBlank()) {
                     respond(spoken)
-                } else status = "AUCUN MESSAGE REÇU"
+                } else {
+                    status = "AUCUN MESSAGE REÇU"
+                }
             }
+
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
@@ -372,26 +443,60 @@ fun JarvisScreen() {
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF07111F)) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF07111F)
+    ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(Modifier.height(12.dp))
-            Text("J.A.R.V.I.S", color = Color(0xFF55DFFF), fontSize = 32.sp)
-            Text("ASSISTANT PERSONNEL HYBRIDE", color = Color.LightGray, fontSize = 11.sp)
+
+            Text(
+                "J.A.R.V.I.S",
+                color = Color(0xFF55DFFF),
+                fontSize = 32.sp
+            )
+
+            Text(
+                "ASSISTANT PERSONNEL HYBRIDE",
+                color = Color.LightGray,
+                fontSize = 11.sp
+            )
+
             Spacer(Modifier.height(12.dp))
-            Text("◉", color = Color(0xFF55DFFF), fontSize = 66.sp)
-            Text(status, color = Color(0xFF55DFFF), fontSize = 12.sp)
+
+            Text(
+                "◉",
+                color = Color(0xFF55DFFF),
+                fontSize = 66.sp
+            )
+
+            Text(
+                status,
+                color = Color(0xFF55DFFF),
+                fontSize = 12.sp
+            )
+
             Spacer(Modifier.height(12.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { showSettings = !showSettings }) {
                     Text(if (showSettings) "FERMER CONFIG" else "CONFIGURATION IA")
                 }
+
                 Button(onClick = {
                     val facts = prefs.getString("facts", "") ?: ""
-                    addReply("État de ma mémoire", if (facts.isBlank()) "Mémoire locale vide." else "Mémoire active : ${facts.lines().size} information(s) enregistrée(s).")
+                    addReply(
+                        "État de ma mémoire",
+                        if (facts.isBlank())
+                            "Mémoire locale vide."
+                        else
+                            "Mémoire active : ${facts.lines().size} information(s) enregistrée(s)."
+                    )
                 }) {
                     Text("MÉMOIRE")
                 }
@@ -399,77 +504,56 @@ fun JarvisScreen() {
 
             if (showSettings) {
                 Column(
-                    modifier = Modifier.fillMaxWidth()
-                        .background(Color(0xFF14283D), RoundedCornerShape(12.dp))
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Color(0xFF14283D),
+                            RoundedCornerShape(12.dp)
+                        )
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("IA EN LIGNE — FACULTATIVE", color = Color(0xFF55DFFF))
-                    Text("Sans ces informations, JARVIS reste en mode autonome.", color = Color.LightGray, fontSize = 12.sp)
+                    Text(
+                        "IA EN LIGNE — FACULTATIVE",
+                        color = Color(0xFF55DFFF)
+                    )
+
+                    Text(
+                        "Sans ces informations, JARVIS reste en mode autonome.",
+                        color = Color.LightGray,
+                        fontSize = 12.sp
+                    )
+
                     BasicTextField(
                         value = aiUrl,
                         onValueChange = { aiUrl = it },
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFF20384F), RoundedCornerShape(8.dp)).padding(10.dp),
-                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Color(0xFF20384F),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(10.dp),
+                        textStyle = TextStyle(
+                            color = Color.White,
+                            fontSize = 13.sp
+                        ),
                         decorationBox = { inner ->
                             Box {
-                                if (aiUrl.isEmpty()) Text("Adresse API compatible OpenAI", color = Color.Gray, fontSize = 12.sp)
+                                if (aiUrl.isEmpty()) {
+                                    Text(
+                                        "Adresse API compatible OpenAI",
+                                        color = Color.Gray,
+                                        fontSize = 12.sp
+                                    )
+                                }
                                 inner()
                             }
                         }
                     )
+
                     BasicTextField(
                         value = aiModel,
                         onValueChange = { aiModel = it },
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFF20384F), RoundedCornerShape(8.dp)).padding(10.dp),
-                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                        decorationBox = { inner ->
-                            Box {
-                                if (aiModel.isEmpty()) Text("Nom du modèle", color = Color.Gray, fontSize = 12.sp)
-                                inner()
-                            }
-                        }
-                    )
-                    BasicTextField(
-                        value = aiKey,
-                        onValueChange = { aiKey = it },
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFF20384F), RoundedCornerShape(8.dp)).padding(10.dp),
-                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                        decorationBox = { inner ->
-                            Box {
-                                if (aiKey.isEmpty()) Text("Clé API (facultative)", color = Color.Gray, fontSize = 12.sp)
-                                inner()
-                            }
-                        }
-                    )
-                    Button(onClick = {
-                        prefs.edit()
-                            .putString("ai_url", aiUrl.trim())
-                            .putString("ai_model", aiModel.trim())
-                            .putString("ai_key", aiKey.trim())
-                            .apply()
-                        showSettings = false
-                        status = if (aiUrl.isNotBlank() && aiKey.isNotBlank()) "IA CONFIGURÉE" else "MODE AUTONOME ACTIF"
-                    }) {
-                        Text("ENREGISTRER LA CONFIGURATION")
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth()
-                    .background(Color(0xFF101F31), RoundedCornerShape(16.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(messages) { message ->
-                    Text(
-                        message,
-                        color = if (message.startsWith("JARVIS")) Color(0xFF7DEBFF) else Color.White,
-                        fontSize = 14.sp
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
+                        modifier = Modifier
+                    
