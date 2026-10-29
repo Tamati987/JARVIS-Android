@@ -136,12 +136,15 @@ fun JarvisScreen() {
 
     DisposableEffect(context, recognizer) {
         val engine = TextToSpeech(context) { result ->
-            if (result == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.FRANCE
-            }
-        }
-        tts = engine
+    if (result == TextToSpeech.SUCCESS) {
         engine.language = Locale.FRANCE
+
+        // Voix grave et posée
+        engine.setPitch(0.78f)
+        engine.setSpeechRate(0.88f)
+    }
+}
+tts = engine
 
         recognizer?.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
