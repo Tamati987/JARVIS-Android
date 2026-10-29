@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -49,11 +48,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun JarvisScreen() {
     val context = LocalContext.current
+
     val messages = remember {
         mutableStateListOf(
             "JARVIS : Bonjour. Je suis prêt à vous écouter."
         )
     }
+
     var userText by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("SYSTÈME EN LIGNE") }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
@@ -68,6 +69,7 @@ fun JarvisScreen() {
 
     fun respond(text: String) {
         val question = text.lowercase(Locale.FRENCH)
+
         val answer = when {
             "bonjour" in question ->
                 "Bonjour. Heureux de vous retrouver."
@@ -102,11 +104,12 @@ fun JarvisScreen() {
 
             else ->
                 "J'ai bien reçu votre message : $text. " +
-                    "Mon intelligence artificielle complète sera ajoutée dans une prochaine étape."
+                "Mon intelligence artificielle complète sera ajoutée dans une prochaine étape."
         }
 
         messages.add("VOUS : $text")
         messages.add("JARVIS : $answer")
+
         tts?.speak(
             answer,
             TextToSpeech.QUEUE_FLUSH,
@@ -119,7 +122,9 @@ fun JarvisScreen() {
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            val intent = Intent(
+                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+            ).apply {
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
@@ -128,6 +133,7 @@ fun JarvisScreen() {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "fr-FR")
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Parlez à JARVIS")
             }
+
             recognizer?.startListening(intent)
         } else {
             status = "AUTORISATION MICRO REFUSÉE"
@@ -135,63 +141,80 @@ fun JarvisScreen() {
     }
 
     DisposableEffect(context, recognizer) {
-        val engine = TextToSpeech(context) { result ->
-    if (result == TextToSpeech.SUCCESS) {
-        engine.language = Locale.FRANCE
 
-        // Voix grave et posée
+        val engine = TextToSpeech(context) { result ->
+            if (result == TextToSpeech.SUCCESS) {
+                tts?.let { voice ->
+                    voice.language = Locale.FRANCE
+                    voice.setPitch(0.78f)
+                    voice.setSpeechRate(0.88f)
+                }
+            }
+        }
+
+        tts = engine
+
+        engine.language = Locale.FRANCE
         engine.setPitch(0.78f)
         engine.setSpeechRate(0.88f)
-    }
-}
-tts = engine
 
-        recognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                status = "JE VOUS ÉCOUTE..."
-            }
+        recognizer?.setRecognitionListener(
+            object : RecognitionListener {
 
-            override fun onBeginningOfSpeech() {
-                status = "ÉCOUTE EN COURS"
-            }
-
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-
-            override fun onEndOfSpeech() {
-                status = "ANALYSE DU MESSAGE..."
-            }
-
-            override fun onError(error: Int) {
-                status = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH,
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                        "AUCUNE PAROLE DÉTECTÉE"
-
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                        "AUTORISATION MICRO REQUISE"
-
-                    else -> "ÉCOUTE TERMINÉE — RÉESSAYEZ"
+                override fun onReadyForSpeech(params: Bundle?) {
+                    status = "JE VOUS ÉCOUTE..."
                 }
-            }
 
-            override fun onResults(results: Bundle?) {
-                val spokenText = results
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull()
-
-                if (!spokenText.isNullOrBlank()) {
-                    userText = spokenText
-                    respond(spokenText)
-                    status = "SYSTÈME EN LIGNE"
-                } else {
-                    status = "AUCUN MESSAGE REÇU"
+                override fun onBeginningOfSpeech() {
+                    status = "ÉCOUTE EN COURS"
                 }
-            }
 
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
+                override fun onRmsChanged(rmsdB: Float) {}
+
+                override fun onBufferReceived(buffer: ByteArray?) {}
+
+                override fun onEndOfSpeech() {
+                    status = "ANALYSE DU MESSAGE..."
+                }
+
+                override fun onError(error: Int) {
+                    status = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH,
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+                            "AUCUNE PAROLE DÉTECTÉE"
+
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                            "AUTORISATION MICRO REQUISE"
+
+                        else ->
+                            "ÉCOUTE TERMINÉE — RÉESSAYEZ"
+                    }
+                }
+
+                override fun onResults(results: Bundle?) {
+                    val spokenText = results
+                        ?.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION
+                        )
+                        ?.firstOrNull()
+
+                    if (!spokenText.isNullOrBlank()) {
+                        userText = spokenText
+                        respond(spokenText)
+                        status = "SYSTÈME EN LIGNE"
+                    } else {
+                        status = "AUCUN MESSAGE REÇU"
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {}
+
+                override fun onEvent(
+                    eventType: Int,
+                    params: Bundle?
+                ) {}
+            }
+        )
 
         onDispose {
             recognizer?.destroy()
@@ -257,7 +280,8 @@ tts = engine
                         text = message,
                         color = if (message.startsWith("JARVIS"))
                             Color(0xFF7DEBFF)
-                        else Color.White,
+                        else
+                            Color.White,
                         fontSize = 15.sp
                     )
                 }
@@ -343,6 +367,7 @@ tts = engine
                                 "Parlez à JARVIS"
                             )
                         }
+
                         recognizer.startListening(intent)
                     } else {
                         microphonePermission.launch(
