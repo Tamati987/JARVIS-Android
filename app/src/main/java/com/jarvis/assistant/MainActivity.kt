@@ -1,3 +1,4 @@
+
 package com.jarvis.assistant
 
 import android.Manifest
@@ -5,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -38,10 +38,23 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val Background = Color(0xFF07111F)
+private val Panel = Color(0xFF102238)
+private val Accent = Color(0xFF22D3EE)
+private val MainText = Color(0xFFEAF7FF)
+private val MutedText = Color(0xFF9BB2C8)
+
+data class ChatMessage(
+    val text: String,
+    val fromUser: Boolean
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { JarvisScreen() }
+        setContent {
+            JarvisScreen()
+        }
     }
 }
 
@@ -49,161 +62,103 @@ class MainActivity : ComponentActivity() {
 fun JarvisScreen() {
     val context = LocalContext.current
     val prefs = remember {
-        context.getSharedPreferences("jarvis_memory", android.content.Context.MODE_PRIVATE)
+        context.getSharedPreferences("jarvis_settings", 0)
     }
 
-    val messages = remember {
-        mutableStateListOf<String>().apply {
-            val saved = prefs.getString("history", null)
-            if (saved != null) {
-                try {
-                    val array = JSONArray(saved)
-                    for (i in 0 until array.length()) add(array.getString(i))
-                } catch (_: Exception) {}
-            }
-            if (isEmpty()) add("JARVIS : Bonjour. Tous les systèmes sont opérationnels.")
+    var input by remember { mutableStateOf("") }
+    var aiEndpoint by remember {
+        mutableStateOf(prefs.getString("endpoint", "https://api.openai.com/v1/chat/completions") ?: "")
+    }
+    var aiModel by remember {
+        mutableStateOf(prefs.getString("model", "gpt-4o-mini") ?: "gpt-4o-mini")
+    }
+    var aiKey by remember {
+        mutableStateOf(prefs.getString("key", "") ?: "")
+    }
+    var showSettings by remember { mutableStateOf(false) }
+    var listening by remember { mutableStateOf(false) }
+    var speaking by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("Système prêt") }
+
+    val history = remember {
+        mutableStateListOf<ChatMessage>().apply {
+            add(ChatMessage("Bonjour. Je suis JARVIS. Comment puis-je vous aider ?", false))
         }
     }
 
-    var userText by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("SYSTÈME LOCAL ACTIF") }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
-    var aiUrl by remember { mutableStateOf(prefs.getString("ai_url", "") ?: "") }
-    var aiKey by remember { mutableStateOf(prefs.getString("ai_key", "") ?: "") }
-    var aiModel by remember { mutableStateOf(prefs.getString("ai_model", "gpt-4o-mini") ?: "gpt-4o-mini") }
-    var showSettings by remember { mutableStateOf(false) }
+    var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
-    val recognizer = remember {
-        if (SpeechRecognizer.isRecognitionAvailable(context))
-            SpeechRecognizer.createSpeechRecognizer(context)
-        else null
+    fun speak(message: String) {
+        tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
     }
 
-    fun saveHistory() {
-        val array = JSONArray()
-        messages.takeLast(40).forEach { array.put(it) }
-        prefs.edit().putString("history", array.toString()).apply()
+    fun addReply(message: String) {
+        history.add(ChatMessage(message, false))
+        speak(message)
+        status = "Réponse prête"
     }
 
-    fun speak(answer: String) {
-        tts?.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
-    }
-
-    fun addReply(question: String, answer: String) {
-        messages.add("VOUS : $question")
-        messages.add("JARVIS : $answer")
-        while (messages.size > 40) messages.removeAt(0)
-        saveHistory()
-        speak(answer)
-        status = "SYSTÈME LOCAL ACTIF"
-    }
-
-    fun openApp(action: String): String {
-        return try {
-            val intent = when (action) {
-                "settings" -> Intent(Settings.ACTION_SETTINGS)
-                "wifi" -> Intent(Settings.ACTION_WIFI_SETTINGS)
-                "bluetooth" -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
-                "camera" -> Intent("android.media.action.IMAGE_CAPTURE")
-                "calculator" -> Intent(Intent.ACTION_MAIN)
-                    .addCategory("android.intent.category.APP_CALCULATOR")
-                "browser" -> Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))
-                else -> null
-            }
-
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-                "J'ouvre l'application demandée."
-            } else {
-                "Cette commande n'est pas disponible."
-            }
-        } catch (_: Exception) {
-            "Je ne parviens pas à ouvrir cette fonction sur cet appareil."
+    fun openApp(packageName: String, label: String) {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent != null) {
+            context.startActivity(launchIntent)
+            addReply("J'ouvre $label.")
+        } else {
+            addReply("Je ne trouve pas l'application $label sur cet appareil.")
         }
     }
 
     fun askOnlineAI(question: String) {
-        val endpoint = aiUrl.trim()
-        val key = aiKey.trim()
-        val model = aiModel.trim().ifBlank { "gpt-4o-mini" }
-
-        if (endpoint.isBlank() || key.isBlank()) {
-            addReply(
-                question,
-                "Je fonctionne actuellement en mode autonome. Pour utiliser une IA en ligne, configure son adresse et sa clé dans les paramètres."
-            )
+        if (aiKey.isBlank()) {
+            addReply("Pour utiliser l'intelligence artificielle en ligne, configure d'abord ta clé API dans les paramètres.")
             return
         }
 
-        status = "CONNEXION À L'IA..."
-        messages.add("VOUS : $question")
-        messages.add("JARVIS : Je consulte mon intelligence en ligne...")
-        saveHistory()
+        history.add(ChatMessage("Connexion à l'intelligence artificielle...", false))
+        status = "Connexion IA..."
 
         Thread {
-            var answer = "La connexion à l'IA a échoué. Je reste disponible en mode local."
-            var connection: HttpURLConnection? = null
-
+            var answer = "Je n'ai pas réussi à contacter le service IA."
             try {
-                val url = URL(endpoint)
-                connection = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("Authorization", "Bearer $key")
-                }
+                val url = URL(aiEndpoint)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 15000
+                connection.readTimeout = 30000
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.setRequestProperty("Authorization", "Bearer $aiKey")
 
-                val history = JSONArray()
-                history.put(
-                    JSONObject()
-                        .put("role", "system")
-                        .put(
-                            "content",
-                            "Tu es JARVIS, un assistant personnel francophone, précis, poli et concis. Tu réponds en français."
-                        )
-                )
-
-                messages.takeLast(12).forEach { line ->
-                    when {
-                        line.startsWith("VOUS : ") ->
-                            history.put(
-                                JSONObject()
-                                    .put("role", "user")
-                                    .put("content", line.removePrefix("VOUS : "))
-                            )
-
-                        line.startsWith("JARVIS : ") ->
-                            history.put(
-                                JSONObject()
-                                    .put("role", "assistant")
-                                    .put("content", line.removePrefix("JARVIS : "))
-                            )
-                    }
-                }
-
-                history.put(
-                    JSONObject()
-                        .put("role", "user")
-                        .put("content", question)
-                )
+                val messages = JSONArray()
+                    .put(
+                        JSONObject()
+                            .put("role", "system")
+                            .put("content", "Tu es JARVIS, un assistant personnel utile. Réponds en français, clairement et naturellement.")
+                    )
+                    .put(
+                        JSONObject()
+                            .put("role", "user")
+                            .put("content", question)
+                    )
 
                 val body = JSONObject()
-                    .put("model", model)
-                    .put("messages", history)
+                    .put("model", aiModel)
+                    .put("messages", messages)
+                    .put("temperature", 0.7)
 
                 connection.outputStream.use {
                     it.write(body.toString().toByteArray(Charsets.UTF_8))
                 }
 
                 val responseCode = connection.responseCode
-                val stream = if (responseCode in 200..299)
-                    connection.inputStream else connection.errorStream
+                val stream = if (responseCode in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                }
 
                 val response = stream.bufferedReader().use { it.readText() }
-
                 if (responseCode in 200..299) {
                     val json = JSONObject(response)
                     answer = json.getJSONArray("choices")
@@ -211,349 +166,370 @@ fun JarvisScreen() {
                         .getJSONObject("message")
                         .getString("content")
                 } else {
-                    answer = "Le service IA a répondu avec une erreur ($responseCode). Vérifie la configuration."
+                    answer = "Erreur du service IA ($responseCode). Vérifie ton endpoint et ta clé API."
                 }
-            } catch (_: Exception) {
-                answer = "Impossible de joindre le service IA. Vérifie ta connexion et l'adresse du service."
-            } finally {
-                connection?.disconnect()
+                connection.disconnect()
+            } catch (e: Exception) {
+                answer = "Connexion impossible : ${e.localizedMessage ?: "erreur inconnue"}"
             }
 
-            val finalAnswer = answer
             (context as? ComponentActivity)?.runOnUiThread {
-                messages.add("JARVIS : $finalAnswer")
-                while (messages.size > 40) messages.removeAt(0)
-                saveHistory()
-                speak(finalAnswer)
-                status = "SYSTÈME EN LIGNE"
+                history.add(ChatMessage(answer, false))
+                speak(answer)
+                status = "Système prêt"
             }
         }.start()
     }
 
-    fun respond(raw: String) {
-        val question = raw.trim()
-        if (question.isBlank()) return
+    fun respond(rawText: String) {
+        val question = rawText.trim()
+        if (question.isEmpty()) return
 
+        history.add(ChatMessage(question, true))
+        input = ""
         val q = question.lowercase(Locale.FRENCH)
 
-        // MÉMOIRE LOCALE
-        val rememberPrefix = listOf(
-            "retiens que ",
-            "souviens-toi que ",
-            "mémorise que ",
-            "memorise que "
-        )
-        val memoryPrefix = rememberPrefix.firstOrNull { q.startsWith(it) }
+        when {
+            q.contains("bonjour") || q == "salut" || q.contains("bonsoir") ->
+                addReply("Bonjour ! Je suis à ton écoute.")
 
-        if (memoryPrefix != null) {
-            val information = question.substring(memoryPrefix.length).trim()
-            if (information.isNotBlank()) {
-                val old = prefs.getString("facts", "") ?: ""
-                val updated = (old.lines() + information)
-                    .filter { it.isNotBlank() }
-                    .takeLast(100)
+            q.contains("quelle heure") || q == "heure" ->
+                addReply("Il est ${SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date())}.")
 
-                prefs.edit()
-                    .putString("facts", updated.joinToString("\n"))
-                    .apply()
+            q.contains("quelle date") || q.contains("on est quel jour") ->
+                addReply("Nous sommes le ${SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRENCH).format(Date())}.")
 
-                addReply(question, "Information enregistrée dans ma mémoire locale.")
-            }
-            return
-        }
+            q.contains("ouvre les paramètres") || q.contains("ouvre les reglages") ->
+                runCatching {
+                    context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                    addReply("J'ouvre les paramètres.")
+                }.onFailure { addReply("Je ne peux pas ouvrir les paramètres.") }
 
-        if (q.contains("qu'as-tu retenu") ||
-            q.contains("que sais-tu de moi") ||
-            q.contains("ma mémoire") ||
-            q.contains("ma memoire")
-        ) {
-            val facts = prefs.getString("facts", "") ?: ""
-            addReply(
-                question,
-                if (facts.isBlank())
-                    "Ma mémoire personnelle est encore vide. Tu peux me dire : retiens que..."
-                else
-                    "Voici les informations mémorisées : $facts"
-            )
-            return
-        }
+            q.contains("wifi") || q.contains("wi-fi") ->
+                runCatching {
+                    context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                    addReply("J'ouvre les paramètres Wi-Fi.")
+                }.onFailure { addReply("Je ne peux pas ouvrir les paramètres Wi-Fi.") }
 
-        if (q.contains("oublie ma mémoire") ||
-            q.contains("efface ma mémoire") ||
-            q.contains("efface ma memoire")
-        ) {
-            prefs.edit().remove("facts").apply()
-            addReply(question, "Ma mémoire personnelle locale a été effacée.")
-            return
-        }
+            q.contains("bluetooth") ->
+                runCatching {
+                    context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    addReply("J'ouvre les paramètres Bluetooth.")
+                }.onFailure { addReply("Je ne peux pas ouvrir les paramètres Bluetooth.") }
 
-        // COMMANDES LOCALES
-        val answer = when {
-            q.contains("bonjour") || q == "salut" ->
-                "Bonjour. Heureux de vous retrouver. Comment puis-je vous aider ?"
+            q.contains("ouvre youtube") ->
+                openApp("com.google.android.youtube", "YouTube")
 
-            q.contains("qui es-tu") || q.contains("qui es tu") ->
-                "Je suis JARVIS, votre assistant personnel hybride."
+            q.contains("ouvre chrome") || q.contains("ouvre internet") ->
+                openApp("com.android.chrome", "Chrome")
 
-            q.contains("ton nom") ->
-                "Je suis JARVIS."
+            q.contains("ouvre appareil photo") || q.contains("ouvre la caméra") ->
+                runCatching {
+                    context.startActivity(Intent("android.media.action.IMAGE_CAPTURE"))
+                    addReply("J'ouvre l'appareil photo.")
+                }.onFailure { addReply("Impossible d'ouvrir l'appareil photo.") }
 
-            q.contains("heure") ->
-                "Il est actuellement " +
-                    SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date()) + "."
+            q.startsWith("recherche ") || q.startsWith("cherche sur internet ") -> {
+                val search = question
+                    .substringAfter("recherche ", "")
+                    .ifBlank { question.substringAfter("cherche sur internet ", "") }
 
-            q.contains("date") || q.contains("quel jour") ->
-                "Nous sommes le " +
-                    SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRANCE).format(Date()) + "."
-
-            q.contains("ouvre les paramètres") ||
-                q.contains("ouvre les parametres") ->
-                openApp("settings")
-
-            q.contains("ouvre le wifi") ||
-                q.contains("ouvre le wi-fi") ->
-                openApp("wifi")
-
-            q.contains("ouvre bluetooth") ->
-                openApp("bluetooth")
-
-            q.contains("ouvre la caméra") ||
-                q.contains("ouvre la camera") ->
-                openApp("camera")
-
-            q.contains("ouvre la calculatrice") ->
-                openApp("calculator")
-
-            q.contains("ouvre internet") ||
-                q.contains("ouvre le navigateur") ->
-                openApp("browser")
-
-            q.startsWith("cherche ") || q.startsWith("recherche ") -> {
-                val terms = question.substringAfter(" ").trim()
-                try {
-                    val url = "https://www.google.com/search?q=" + Uri.encode(terms)
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    )
-                    "Je lance la recherche sur Internet."
-                } catch (_: Exception) {
-                    "Je n'arrive pas à ouvrir le navigateur."
+                val intent = Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://www.google.com/search?q=${Uri.encode(search)}")
+                )
+                runCatching {
+                    context.startActivity(intent)
+                    addReply("Voici les résultats de ta recherche.")
+                }.onFailure {
+                    addReply("Je ne peux pas ouvrir le navigateur.")
                 }
             }
 
+            q.contains("qui es-tu") || q.contains("qui est jarvis") ->
+                addReply("Je suis JARVIS, ton assistant personnel Android.")
+
             q.contains("merci") ->
-                "Avec plaisir. Je reste à votre disposition."
+                addReply("Avec plaisir !")
 
-            q.contains("au revoir") ->
-                "À bientôt. Je reste en veille."
-
-            q.contains("mode autonome") ->
-                "Le mode autonome utilise mes commandes intégrées et ma mémoire locale. Aucune IA en ligne n'est nécessaire."
-
-            else -> null
-        }
-
-        if (answer != null) {
-            addReply(question, answer)
-        } else if (aiUrl.isNotBlank() && aiKey.isNotBlank()) {
-            askOnlineAI(question)
-        } else {
-            addReply(
-                question,
-                "Je n'ai pas encore de réponse intégrée à cette demande. Je peux gérer mes commandes locales et ma mémoire. Configure une IA en ligne si tu souhaites des réponses plus avancées."
-            )
+            else -> askOnlineAI(question)
         }
     }
 
-    val microphonePermission = rememberLauncherForActivityResult(
+    val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
+            status = "Micro autorisé"
+            listening = true
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                )
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR")
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Parlez à JARVIS")
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             }
-            recognizer?.startListening(intent)
+            speechRecognizer?.startListening(intent)
         } else {
-            status = "AUTORISATION MICRO REFUSÉE"
+            status = "Permission micro refusée"
         }
     }
 
     DisposableEffect(Unit) {
-        val engine = TextToSpeech(context) { result ->
+        tts = TextToSpeech(context) { result ->
             if (result == TextToSpeech.SUCCESS) {
-                tts?.let {
-                    it.language = Locale.FRANCE
-                    it.setPitch(0.78f)
-                    it.setSpeechRate(0.88f)
-                }
+                tts?.language = Locale.FRANCE
             }
         }
 
-        tts = engine
-        engine.language = Locale.FRANCE
-        engine.setPitch(0.78f)
-        engine.setSpeechRate(0.88f)
-
-        recognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                status = "JE VOUS ÉCOUTE..."
-            }
-
-            override fun onBeginningOfSpeech() {
-                status = "ÉCOUTE EN COURS"
-            }
-
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-
-            override fun onEndOfSpeech() {
-                status = "ANALYSE..."
-            }
-
-            override fun onError(error: Int) {
-                status = "ÉCOUTE TERMINÉE — RÉESSAYEZ"
-            }
-
-            override fun onResults(results: Bundle?) {
-                val spoken = results
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull()
-
-                if (!spoken.isNullOrBlank()) {
-                    respond(spoken)
-                } else {
-                    status = "AUCUN MESSAGE REÇU"
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    status = "Je t'écoute..."
                 }
-            }
 
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
+                override fun onBeginningOfSpeech() {
+                    listening = true
+                }
+
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+
+                override fun onEndOfSpeech() {
+                    listening = false
+                    status = "Traitement..."
+                }
+
+                override fun onError(error: Int) {
+                    listening = false
+                    status = "Micro prêt"
+                }
+
+                override fun onResults(results: Bundle?) {
+                    listening = false
+                    val spokenText = results
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull()
+
+                    if (!spokenText.isNullOrBlank()) {
+                        respond(spokenText)
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        }
 
         onDispose {
-            recognizer?.destroy()
-            engine.stop()
-            engine.shutdown()
-            tts = null
+            speechRecognizer?.destroy()
+            tts?.stop()
+            tts?.shutdown()
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF07111F)
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Accent,
+            background = Background,
+            surface = Panel,
+            onPrimary = Background,
+            onBackground = MainText,
+            onSurface = MainText
+        )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .background(Background)
+                .padding(16.dp)
         ) {
-            Spacer(Modifier.height(12.dp))
-
-            Text(
-                "J.A.R.V.I.S",
-                color = Color(0xFF55DFFF),
-                fontSize = 32.sp
-            )
-
-            Text(
-                "ASSISTANT PERSONNEL HYBRIDE",
-                color = Color.LightGray,
-                fontSize = 11.sp
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            Text(
-                "◉",
-                color = Color(0xFF55DFFF),
-                fontSize = 66.sp
-            )
-
-            Text(
-                status,
-                color = Color(0xFF55DFFF),
-                fontSize = 12.sp
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { showSettings = !showSettings }) {
-                    Text(if (showSettings) "FERMER CONFIG" else "CONFIGURATION IA")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("J.A.R.V.I.S", color = Accent, fontSize = 27.sp)
+                    Text("ASSISTANT PERSONNEL", color = MutedText, fontSize = 10.sp)
                 }
 
-                Button(onClick = {
-                    val facts = prefs.getString("facts", "") ?: ""
-                    addReply(
-                        "État de ma mémoire",
-                        if (facts.isBlank())
-                            "Mémoire locale vide."
-                        else
-                            "Mémoire active : ${facts.lines().size} information(s) enregistrée(s)."
-                    )
-                }) {
-                    Text("MÉMOIRE")
+                TextButton(onClick = { showSettings = !showSettings }) {
+                    Text(if (showSettings) "FERMER" else "PARAMÈTRES")
                 }
             }
 
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Panel, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(Accent, RoundedCornerShape(50))
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(status, color = MutedText, fontSize = 13.sp)
+            }
+
             if (showSettings) {
-                Column(
+                Spacer(Modifier.height(12.dp))
+                Text("CONFIGURATION IA", color = Accent, fontSize = 14.sp)
+
+                BasicTextField(
+                    value = aiEndpoint,
+                    onValueChange = { aiEndpoint = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(
-                            Color(0xFF14283D),
-                            RoundedCornerShape(12.dp)
-                        )
+                        .background(Panel, RoundedCornerShape(8.dp))
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "IA EN LIGNE — FACULTATIVE",
-                        color = Color(0xFF55DFFF)
-                    )
-
-                    Text(
-                        "Sans ces informations, JARVIS reste en mode autonome.",
-                        color = Color.LightGray,
-                        fontSize = 12.sp
-                    )
-
-                    BasicTextField(
-                        value = aiUrl,
-                        onValueChange = { aiUrl = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Color(0xFF20384F),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(10.dp),
-                        textStyle = TextStyle(
-                            color = Color.White,
-                            fontSize = 13.sp
-                        ),
-                        decorationBox = { inner ->
-                            Box {
-                                if (aiUrl.isEmpty()) {
-                                    Text(
-                                        "Adresse API compatible OpenAI",
-                                        color = Color.Gray,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                inner()
-                            }
+                    textStyle = TextStyle(color = MainText, fontSize = 13.sp),
+                    decorationBox = { inner ->
+                        if (aiEndpoint.isEmpty()) {
+                            Text("Adresse API", color = MutedText)
                         }
-                    )
+                        inner()
+                    }
+                )
 
-                    BasicTextField(
-                        value = aiModel,
-                        onValueChange = { aiModel = it },
-                        modifier = Modifier
-                    
+                Spacer(Modifier.height(8.dp))
+
+                BasicTextField(
+                    value = aiModel,
+                    onValueChange = { aiModel = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Panel, RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                    textStyle = TextStyle(color = MainText, fontSize = 13.sp),
+                    decorationBox = { inner ->
+                        if (aiModel.isEmpty()) {
+                            Text("Modèle IA", color = MutedText)
+                        }
+                        inner()
+                    }
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                BasicTextField(
+                    value = aiKey,
+                    onValueChange = { aiKey = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Panel, RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                    textStyle = TextStyle(color = MainText, fontSize = 13.sp),
+                    decorationBox = { inner ->
+                        if (aiKey.isEmpty()) {
+                            Text("Clé API", color = MutedText)
+                        }
+                        inner()
+                    }
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        prefs.edit()
+                            .putString("endpoint", aiEndpoint)
+                            .putString("model", aiModel)
+                            .putString("key", aiKey)
+                            .apply()
+                        status = "Configuration enregistrée"
+                        showSettings = false
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("ENREGISTRER")
+                }
+
+                Text(
+                    "Attention : la clé API est stockée localement sur cet appareil. Ne partage pas ton fichier APK avec une clé personnelle enregistrée.",
+                    color = MutedText,
+                    fontSize = 11.sp
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            Text("CONVERSATION", color = Accent, fontSize = 13.sp)
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(history) { message ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (message.fromUser) {
+                            Arrangement.End
+                        } else {
+                            Arrangement.Start
+                        }
+                    ) {
+                        Text(
+                            message.text,
+                            color = MainText,
+                            modifier = Modifier
+                                .widthIn(max = 300.dp)
+                                .background(
+                                    if (message.fromUser) Color(0xFF16465B) else Panel,
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .padding(12.dp),
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(Panel, RoundedCornerShape(12.dp))
+                        .padding(14.dp),
+                    textStyle = TextStyle(color = MainText, fontSize = 14.sp),
+                    decorationBox = { inner ->
+                        if (input.isEmpty()) {
+                            Text("Écris à JARVIS...", color = MutedText)
+                        }
+                        inner()
+                    }
+                )
+
+                Spacer(Modifier.width(6.dp))
+
+                Button(
+                    onClick = { respond(input) },
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Text("ENVOYER")
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = {
+                    if (ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+ 
