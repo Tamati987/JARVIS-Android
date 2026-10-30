@@ -1,4 +1,3 @@
-
 package com.jarvis.assistant
 
 import android.Manifest
@@ -8,30 +7,50 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.CalendarContract
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -40,50 +59,276 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val Background = Color(0xFF07111F)
-private val Panel = Color(0xFF102238)
-private val Accent = Color(0xFF22D3EE)
+private val Background = Color(0xFF030914)
+private val Panel = Color(0xFF0B1B2D)
+private val Accent = Color(0xFF35E7FF)
+private val Blue = Color(0xFF1677FF)
 private val MainText = Color(0xFFEAF7FF)
-private val MutedText = Color(0xFF9BB2C8)
+private val Muted = Color(0xFF8CA8C0)
+private val Ready = Color(0xFF5CFF6B)
 
-private const val PREFS_NAME = "jarvis_memory"
-private const val HISTORY_KEY = "conversation"
-private const val ENDPOINT_KEY = "endpoint"
-private const val MODEL_KEY = "model"
+private const val PREFS = "jarvis_memory"
+private const val HISTORY = "conversation"
 private const val API_KEY = "api_key"
+private const val API_MODEL = "model"
+private const val API_ENDPOINT = "endpoint"
+
+// Dimensions de l'image d'accueil (jarvis_home.jpg), pour placer les zones cliquables.
+private const val HOME_W = 941f
+private const val HOME_H = 1614f
 
 data class ChatMessage(
     val text: String,
     val fromUser: Boolean
 )
 
+private enum class Screen { HOME, CHAT, TOOLS, APPS, SETTINGS }
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            JarvisScreen()
+            JarvisApp()
         }
     }
 }
 
 @Composable
-fun JarvisScreen() {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    val prefs = remember {
-        context.getSharedPreferences(PREFS_NAME, 0)
+fun JarvisApp() {
+    var showSplash by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        delay(3000)
+        showSplash = false
     }
 
-    var input by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("SYSTÈME EN LIGNE") }
-    var thinking by remember { mutableStateOf(false) }
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Accent,
+            background = Background,
+            surface = Panel,
+            onPrimary = Background,
+            onBackground = MainText,
+            onSurface = MainText
+        )
+    ) {
+        if (showSplash) {
+            JarvisSplash()
+        } else {
+            JarvisAssistant()
+        }
+    }
+}
+
+@Composable
+fun JarvisSplash() {
+    val animation = rememberInfiniteTransition(label = "splash")
+
+    val pulse by animation.animateFloat(
+        initialValue = 0.88f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            tween(1300, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+
+    val rotation by animation.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            tween(8000, easing = LinearEasing)
+        ),
+        label = "rotation"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF09233B),
+                        Background,
+                        Color(0xFF01040A)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(
+                size.width / 2f,
+                size.height * 0.42f
+            )
+            val radius = size.minDimension * 0.43f
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(
+                        Color(0x4422DFFF),
+                        Color.Transparent
+                    ),
+                    center,
+                    radius
+                ),
+                radius = radius,
+                center = center
+            )
+
+            for (i in 1..5) {
+                drawCircle(
+                    color = Accent.copy(alpha = 0.045f),
+                    radius = radius * i / 5f,
+                    center = center,
+                    style = Stroke(1.dp.toPx())
+                )
+            }
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Canvas(Modifier.size(270.dp)) {
+                val center = Offset(
+                    size.width / 2f,
+                    size.height / 2f
+                )
+                val radius = size.minDimension * 0.37f
+
+                drawCircle(
+                    color = Accent.copy(alpha = 0.12f),
+                    radius = radius * 1.5f * pulse,
+                    center = center
+                )
+
+                drawCircle(
+                    color = Accent,
+                    radius = radius,
+                    center = center,
+                    style = Stroke(2.dp.toPx())
+                )
+
+                drawCircle(
+                    color = Blue,
+                    radius = radius * 0.78f,
+                    center = center,
+                    style = Stroke(5.dp.toPx())
+                )
+
+                drawArc(
+                    color = Accent,
+                    startAngle = rotation,
+                    sweepAngle = 100f,
+                    useCenter = false,
+                    topLeft = Offset(
+                        center.x - radius * 1.18f,
+                        center.y - radius * 1.18f
+                    ),
+                    size = Size(
+                        radius * 2.36f,
+                        radius * 2.36f
+                    ),
+                    style = Stroke(
+                        width = 5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                )
+
+                drawArc(
+                    color = Color.White,
+                    startAngle = -rotation,
+                    sweepAngle = 50f,
+                    useCenter = false,
+                    topLeft = Offset(
+                        center.x - radius * 0.62f,
+                        center.y - radius * 0.62f
+                    ),
+                    size = Size(
+                        radius * 1.24f,
+                        radius * 1.24f
+                    ),
+                    style = Stroke(
+                        width = 3.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                )
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(
+                            Color.White,
+                            Accent,
+                            Blue
+                        )
+                    ),
+                    radius = radius * 0.28f * pulse,
+                    center = center
+                )
+            }
+
+            Spacer(Modifier.height(35.dp))
+
+            Text(
+                "J.A.R.V.I.S",
+                color = Accent,
+                fontSize = 34.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 7.sp
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            Text(
+                "PERSONAL AI ASSISTANT",
+                color = Muted,
+                fontSize = 11.sp,
+                letterSpacing = 3.sp
+            )
+
+            Spacer(Modifier.height(45.dp))
+
+            Text(
+                "INITIALISATION DU SYSTÈME",
+                color = Accent,
+                fontSize = 12.sp,
+                letterSpacing = 2.sp
+            )
+
+            Spacer(Modifier.height(15.dp))
+
+            Text(
+                "JARVIS EST EN COURS DE DÉMARRAGE...",
+                color = Muted,
+                fontSize = 9.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun JarvisAssistant() {
+    val context = LocalContext.current
+    val prefs = remember {
+        context.getSharedPreferences(PREFS, 0)
+    }
+    val handler = remember {
+        Handler(Looper.getMainLooper())
+    }
+
+    var status by remember {
+        mutableStateOf("SYSTÈME EN LIGNE")
+    }
     var listening by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
+    var thinking by remember { mutableStateOf(false) }
+    var input by remember { mutableStateOf("") }
+    var screen by remember { mutableStateOf(Screen.HOME) }
 
     var endpoint by remember {
         mutableStateOf(
             prefs.getString(
-                ENDPOINT_KEY,
+                API_ENDPOINT,
                 "https://api.openai.com/v1/chat/completions"
             ) ?: ""
         )
@@ -91,17 +336,19 @@ fun JarvisScreen() {
 
     var model by remember {
         mutableStateOf(
-            prefs.getString(MODEL_KEY, "gpt-4o-mini") ?: ""
+            prefs.getString(API_MODEL, "gpt-4o-mini") ?: ""
         )
     }
 
     var apiKey by remember {
-        mutableStateOf(prefs.getString(API_KEY, "") ?: "")
+        mutableStateOf(
+            prefs.getString(API_KEY, "") ?: ""
+        )
     }
 
-    val history = remember {
+    val messages = remember {
         mutableStateListOf<ChatMessage>().apply {
-            val saved = prefs.getString(HISTORY_KEY, null)
+            val saved = prefs.getString(HISTORY, null)
 
             if (!saved.isNullOrBlank()) {
                 runCatching {
@@ -110,8 +357,8 @@ fun JarvisScreen() {
                         val item = array.getJSONObject(i)
                         add(
                             ChatMessage(
-                                text = item.optString("text"),
-                                fromUser = item.optBoolean("user")
+                                item.optString("text"),
+                                item.optBoolean("user")
                             )
                         )
                     }
@@ -121,15 +368,13 @@ fun JarvisScreen() {
             if (isEmpty()) {
                 add(
                     ChatMessage(
-                        "Bonjour ! Je suis JARVIS, ton assistant personnel. Que puis-je faire pour toi ?",
+                        "Bonjour ! Je suis JARVIS. Ton assistant personnel est opérationnel. Que puis-je faire pour toi ?",
                         false
                     )
                 )
             }
         }
     }
-
-    val listState = rememberLazyListState()
 
     var tts by remember {
         mutableStateOf<TextToSpeech?>(null)
@@ -138,86 +383,94 @@ fun JarvisScreen() {
     val recognizer = remember {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
             SpeechRecognizer.createSpeechRecognizer(context)
-        } else {
-            null
+        } else null
+    }
+
+    fun saveHistory() {
+        runCatching {
+            val array = JSONArray()
+            messages.takeLast(100).forEach {
+                array.put(
+                    JSONObject()
+                        .put("text", it.text)
+                        .put("user", it.fromUser)
+                )
+            }
+            prefs.edit()
+                .putString(HISTORY, array.toString())
+                .apply()
         }
     }
 
-    fun speak(message: String) {
+    fun speak(text: String) {
         tts?.speak(
-            message.take(3000),
+            text.take(3000),
             TextToSpeech.QUEUE_FLUSH,
             null,
             "jarvis_reply"
         )
     }
 
-    fun saveMemory() {
-        runCatching {
-            val array = JSONArray()
-            history.takeLast(100).forEach { message ->
-                array.put(
-                    JSONObject()
-                        .put("text", message.text)
-                        .put("user", message.fromUser)
-                )
-            }
-
-            prefs.edit()
-                .putString(HISTORY_KEY, array.toString())
-                .apply()
-        }
-    }
-
-    fun reply(message: String) {
-        history.add(ChatMessage(message, false))
-        saveMemory()
+    fun reply(text: String) {
+        messages.add(ChatMessage(text, false))
+        saveHistory()
         status = "JARVIS PRÊT"
-        speak(message)
+        thinking = false
+        speak(text)
     }
 
-    fun openWeb(address: String) {
+    fun openWeb(url: String) {
         runCatching {
             context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(address))
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
             )
         }.onFailure {
-            reply("Je n'arrive pas à ouvrir cette page.")
+            reply("Impossible d'ouvrir cette page.")
         }
     }
 
-    fun openSystemSettings(action: String, message: String) {
+    fun openIntent(intent: Intent, success: String, failure: String) {
         runCatching {
-            context.startActivity(Intent(action))
-            reply(message)
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            reply(success)
         }.onFailure {
-            reply("Impossible d'ouvrir ce réglage.")
+            reply(failure)
         }
     }
 
-    fun askOnlineAI(question: String) {
+    fun openAgenda() {
+        val agenda = Intent(Intent.ACTION_VIEW).setData(
+            CalendarContract.CONTENT_URI.buildUpon()
+                .appendPath("time")
+                .appendPath(System.currentTimeMillis().toString())
+                .build()
+        )
+        openIntent(agenda, "J'ouvre ton agenda.", "Aucune appli d'agenda trouvée.")
+    }
+
+    fun askAI(question: String) {
         if (apiKey.isBlank()) {
             reply(
-                "Pour utiliser l'intelligence artificielle en ligne, configure une clé API dans mes paramètres. Mes commandes intégrées restent disponibles."
+                "Configure ta clé API OpenAI dans les réglages pour activer mon intelligence artificielle en ligne."
             )
             return
         }
 
         if (endpoint.isBlank() || model.isBlank()) {
-            reply("Configure l'adresse du service et le modèle IA dans les paramètres.")
+            reply("Vérifie l'adresse du service et le modèle IA.")
             return
         }
 
         thinking = true
         status = "INTELLIGENCE ARTIFICIELLE..."
 
-        val conversation = history.takeLast(12).toList()
+        val conversation = messages.takeLast(12).toList()
+        val savedKey = apiKey
         val savedEndpoint = endpoint
         val savedModel = model
-        val savedKey = apiKey
 
         Thread {
-            val answer: String = try {
+            val answer = try {
                 val connection =
                     URL(savedEndpoint).openConnection() as HttpURLConnection
 
@@ -235,45 +488,36 @@ fun JarvisScreen() {
                     "Bearer $savedKey"
                 )
 
-                val messages = JSONArray()
+                val apiMessages = JSONArray()
 
-                messages.put(
+                apiMessages.put(
                     JSONObject()
                         .put("role", "system")
                         .put(
                             "content",
-                            "Tu es JARVIS, un assistant personnel Android. " +
-                                "Tu réponds toujours en français. " +
-                                "Tu es poli, intelligent, direct et utile. " +
-                                "Tu ne prétends jamais avoir effectué une action " +
-                                "que tu n'as pas réellement exécutée."
+                            "Tu es JARVIS, assistant personnel Android. Réponds toujours en français. Sois intelligent, poli, direct et utile. Ne prétends jamais avoir effectué une action que tu n'as pas réellement exécutée."
                         )
                 )
 
-                conversation.forEach { item ->
-                    messages.put(
+                // La conversation contient déjà la question, ajoutée par executeCommand.
+                conversation.forEach {
+                    apiMessages.put(
                         JSONObject()
                             .put(
                                 "role",
-                                if (item.fromUser) "user" else "assistant"
+                                if (it.fromUser) "user" else "assistant"
                             )
-                            .put("content", item.text)
+                            .put("content", it.text)
                     )
                 }
 
-                messages.put(
-                    JSONObject()
-                        .put("role", "user")
-                        .put("content", question)
-                )
-
                 val body = JSONObject()
                     .put("model", savedModel)
-                    .put("messages", messages)
+                    .put("messages", apiMessages)
                     .put("temperature", 0.7)
 
-                connection.outputStream.use { output ->
-                    output.write(body.toString().toByteArray(Charsets.UTF_8))
+                connection.outputStream.use {
+                    it.write(body.toString().toByteArray(Charsets.UTF_8))
                 }
 
                 val code = connection.responseCode
@@ -283,11 +527,13 @@ fun JarvisScreen() {
                     connection.errorStream
                 }
 
-                val response = stream.bufferedReader().use {
+                val response = stream?.bufferedReader()?.use {
                     it.readText()
-                }
+                } ?: ""
 
-                val result = if (code in 200..299) {
+                connection.disconnect()
+
+                if (code in 200..299) {
                     JSONObject(response)
                         .getJSONArray("choices")
                         .getJSONObject(0)
@@ -296,27 +542,23 @@ fun JarvisScreen() {
                 } else {
                     "Erreur du service IA : HTTP $code."
                 }
-
-                connection.disconnect()
-                result
             } catch (e: Exception) {
-                "Connexion impossible. Vérifie Internet et la configuration IA."
+                "Connexion impossible. Vérifie Internet et tes réglages API."
             }
 
-            mainHandler.post {
-                thinking = false
+            handler.post {
                 reply(answer)
             }
         }.start()
     }
 
-    fun executeCommand(rawText: String) {
-        val question = rawText.trim()
-        if (question.isEmpty() || thinking) return
+    fun executeCommand(raw: String) {
+        val question = raw.trim()
+        if (question.isBlank() || thinking) return
 
-        history.add(ChatMessage(question, true))
+        messages.add(ChatMessage(question, true))
         input = ""
-        saveMemory()
+        saveHistory()
 
         val q = question.lowercase(Locale.FRENCH)
 
@@ -330,9 +572,7 @@ fun JarvisScreen() {
             q.contains("qui es-tu") ||
                 q.contains("qui est jarvis") -> {
                 reply(
-                    "Je suis JARVIS, ton assistant personnel Android. " +
-                        "Je peux discuter, écouter tes commandes vocales " +
-                        "et effectuer plusieurs actions sur ton téléphone."
+                    "Je suis JARVIS, ton assistant personnel Android. Je peux discuter avec toi, écouter tes commandes vocales et effectuer certaines actions sur ton téléphone."
                 )
             }
 
@@ -345,8 +585,7 @@ fun JarvisScreen() {
             }
 
             q.contains("quelle date") ||
-                q.contains("quel jour sommes-nous") ||
-                q.contains("on est quel jour") -> {
+                q.contains("quel jour sommes-nous") -> {
                 val date = SimpleDateFormat(
                     "EEEE d MMMM yyyy",
                     Locale.FRENCH
@@ -356,26 +595,32 @@ fun JarvisScreen() {
 
             q.contains("ouvre les paramètres") ||
                 q.contains("ouvre les reglages") -> {
-                openSystemSettings(
-                    android.provider.Settings.ACTION_SETTINGS,
-                    "J'ouvre les paramètres."
+                openIntent(
+                    Intent(android.provider.Settings.ACTION_SETTINGS),
+                    "J'ouvre les paramètres.",
+                    "Impossible d'ouvrir les paramètres."
                 )
             }
 
             q.contains("ouvre le wifi") ||
-                q.contains("ouvre les paramètres wifi") ||
-                q.contains("ouvre le wi-fi") -> {
-                openSystemSettings(
-                    android.provider.Settings.ACTION_WIFI_SETTINGS,
-                    "J'ouvre les paramètres Wi-Fi."
+                q.contains("ouvre les paramètres wifi") -> {
+                openIntent(
+                    Intent(android.provider.Settings.ACTION_WIFI_SETTINGS),
+                    "J'ouvre les paramètres Wi-Fi.",
+                    "Impossible d'ouvrir le Wi-Fi."
                 )
             }
 
             q.contains("ouvre bluetooth") -> {
-                openSystemSettings(
-                    android.provider.Settings.ACTION_BLUETOOTH_SETTINGS,
-                    "J'ouvre les paramètres Bluetooth."
+                openIntent(
+                    Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS),
+                    "J'ouvre le Bluetooth.",
+                    "Impossible d'ouvrir le Bluetooth."
                 )
+            }
+
+            q.contains("agenda") || q.contains("calendrier") -> {
+                openAgenda()
             }
 
             q.contains("ouvre youtube") -> {
@@ -383,46 +628,36 @@ fun JarvisScreen() {
             }
 
             q.contains("ouvre google") ||
-                q.contains("ouvre internet") ||
-                q.contains("ouvre chrome") -> {
+                q.contains("ouvre chrome") ||
+                q.contains("ouvre internet") -> {
                 openWeb("https://www.google.com")
             }
 
             q.contains("ouvre appareil photo") ||
                 q.contains("ouvre la caméra") -> {
-                runCatching {
-                    context.startActivity(
-                        Intent("android.media.action.IMAGE_CAPTURE")
-                    )
-                    reply("J'ouvre l'appareil photo.")
-                }.onFailure {
-                    reply("Je ne peux pas ouvrir l'appareil photo.")
-                }
+                openIntent(
+                    Intent("android.media.action.IMAGE_CAPTURE"),
+                    "J'ouvre l'appareil photo.",
+                    "Impossible d'ouvrir l'appareil photo."
+                )
             }
 
-            q.startsWith("recherche ") ||
-                q.startsWith("cherche sur internet ") -> {
-                val search = if (q.startsWith("recherche ")) {
-                    question.substringAfter("recherche ", "")
-                } else {
-                    question.substringAfter("cherche sur internet ", "")
-                }
-
+            q.startsWith("recherche ") -> {
+                val search = question.substringAfter("recherche ")
                 openWeb(
                     "https://www.google.com/search?q=${Uri.encode(search)}"
                 )
             }
 
-            q.contains("efface la conversation") ||
-                q.contains("effacer la mémoire") -> {
-                history.clear()
-                history.add(
+            q.contains("efface la conversation") -> {
+                messages.clear()
+                messages.add(
                     ChatMessage(
-                        "La conversation locale a été effacée.",
+                        "Conversation effacée.",
                         false
                     )
                 )
-                saveMemory()
+                saveHistory()
                 status = "MÉMOIRE EFFACÉE"
             }
 
@@ -430,19 +665,71 @@ fun JarvisScreen() {
                 reply("Avec plaisir !")
             }
 
-            else -> {
-                askOnlineAI(question)
-            }
+            else -> askAI(question)
         }
     }
 
-    // Correction importante : on conserve une référence à jour
-    // vers la fonction executeCommand pour la reconnaissance vocale.
     val latestCommand by rememberUpdatedState(
         newValue = { command: String ->
             executeCommand(command)
         }
     )
+
+    fun startListening() {
+        if (recognizer == null) {
+            status = "RECONNAISSANCE VOCALE INDISPONIBLE"
+            return
+        }
+
+        val intent = Intent(
+            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+        ).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+        }
+
+        // Jarvis se tait pendant qu'on lui parle.
+        tts?.stop()
+
+        runCatching {
+            recognizer.startListening(intent)
+        }.onFailure {
+            status = "ERREUR MICRO"
+        }
+    }
+
+    val microphonePermission =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                startListening()
+            } else {
+                status = "AUTORISATION MICRO REFUSÉE"
+            }
+        }
+
+    fun onMicrophone() {
+        if (thinking) return
+        if (listening) {
+            recognizer?.stopListening()
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (granted) {
+            startListening()
+        } else {
+            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     DisposableEffect(Unit) {
         tts = TextToSpeech(context) { result ->
@@ -505,268 +792,497 @@ fun JarvisScreen() {
         }
     }
 
-    fun startListening() {
-        if (recognizer == null) {
-            status = "RECONNAISSANCE VOCALE INDISPONIBLE"
-            return
-        }
-
-        val intent = Intent(
-            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
-        ).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-        }
-
-        runCatching {
-            recognizer.startListening(intent)
-        }.onFailure {
-            status = "ERREUR MICRO"
-        }
+    // Retour : revient à l'accueil au lieu de quitter l'appli.
+    BackHandler(enabled = screen != Screen.HOME) {
+        screen = Screen.HOME
     }
 
-    val microphonePermission =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { granted ->
-            if (granted) {
-                startListening()
-            } else {
-                status = "AUTORISATION MICRO REFUSÉE"
-            }
-        }
+    val lastReply = messages.lastOrNull { !it.fromUser }?.text.orEmpty()
 
-    LaunchedEffect(history.size) {
-        if (history.isNotEmpty()) {
-            listState.animateScrollToItem(history.lastIndex)
-        }
-        saveMemory()
-    }
-
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = Accent,
-            background = Background,
-            surface = Panel,
-            onPrimary = Background,
-            onBackground = MainText,
-            onSurface = MainText
+    when (screen) {
+        Screen.HOME -> HomeScreen(
+            status = status,
+            lastReply = lastReply,
+            listening = listening,
+            thinking = thinking,
+            onMicrophone = { onMicrophone() },
+            onControlPhone = { screen = Screen.TOOLS },
+            onOpenApp = { screen = Screen.APPS },
+            onQuestions = { screen = Screen.CHAT },
+            onAgenda = { openAgenda() },
+            onFunctions = { screen = Screen.CHAT },
+            onTools = { screen = Screen.TOOLS },
+            onSettings = { screen = Screen.SETTINGS }
         )
+
+        Screen.CHAT -> ChatScreen(
+            messages = messages,
+            input = input,
+            onInput = { input = it },
+            thinking = thinking,
+            listening = listening,
+            status = status,
+            onSend = { executeCommand(input) },
+            onMicrophone = { onMicrophone() },
+            onBack = { screen = Screen.HOME }
+        )
+
+        Screen.TOOLS -> ToolsScreen(
+            onCommand = {
+                screen = Screen.CHAT
+                executeCommand(it)
+            },
+            onBack = { screen = Screen.HOME }
+        )
+
+        Screen.APPS -> AppsScreen(
+            onOpened = { name ->
+                messages.add(ChatMessage("J'ouvre $name.", false))
+                saveHistory()
+                speak("J'ouvre $name.")
+            },
+            onBack = { screen = Screen.HOME }
+        )
+
+        Screen.SETTINGS -> SettingsScreen(
+            endpoint = endpoint,
+            model = model,
+            apiKey = apiKey,
+            onEndpoint = { endpoint = it },
+            onModel = { model = it },
+            onApiKey = { apiKey = it },
+            onSave = {
+                prefs.edit()
+                    .putString(API_ENDPOINT, endpoint.trim())
+                    .putString(API_MODEL, model.trim())
+                    .putString(API_KEY, apiKey.trim())
+                    .apply()
+                status = "CONFIGURATION ENREGISTRÉE"
+                screen = Screen.HOME
+            },
+            onClear = {
+                messages.clear()
+                messages.add(ChatMessage("Conversation effacée.", false))
+                saveHistory()
+                status = "MÉMOIRE EFFACÉE"
+            },
+            onBack = { screen = Screen.HOME }
+        )
+    }
+}
+
+/**
+ * Écran d'accueil : l'image J.A.R.V.I.S en fond, avec des zones cliquables placées sur
+ * ses boutons (tuiles, micro, barre du bas, roue des réglages) et l'état réel de Jarvis
+ * affiché dans le cadre « Jarvis est prêt ».
+ */
+@Composable
+private fun HomeScreen(
+    status: String,
+    lastReply: String,
+    listening: Boolean,
+    thinking: Boolean,
+    onMicrophone: () -> Unit,
+    onControlPhone: () -> Unit,
+    onOpenApp: () -> Unit,
+    onQuestions: () -> Unit,
+    onAgenda: () -> Unit,
+    onFunctions: () -> Unit,
+    onTools: () -> Unit,
+    onSettings: () -> Unit
+) {
+    val animation = rememberInfiniteTransition(label = "micro")
+    val glow by animation.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+        label = "glow"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .systemBarsPadding(),
+        contentAlignment = Alignment.Center
     ) {
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
-                .fillMaxSize()
-                .background(Background)
-                .padding(16.dp)
+                .fillMaxWidth()
+                .aspectRatio(HOME_W / HOME_H)
         ) {
-            // EN-TÊTE
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        "J.A.R.V.I.S",
-                        color = Accent,
-                        fontSize = 27.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "PERSONAL ANDROID INTELLIGENCE",
-                        color = MutedText,
-                        fontSize = 9.sp
-                    )
-                }
+            val sx = maxWidth / HOME_W
+            val sy = maxHeight / HOME_H
 
-                TextButton(
-                    onClick = { showSettings = !showSettings }
-                ) {
-                    Text(
-                        if (showSettings) "FERMER" else "RÉGLAGES",
-                        color = Accent
-                    )
-                }
+            Image(
+                painter = painterResource(R.drawable.jarvis_home),
+                contentDescription = "Accueil J.A.R.V.I.S",
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Zone cliquable placée sur un élément de l'image (coordonnées en pixels de l'image).
+            @Composable
+            fun Spot(x1: Float, y1: Float, x2: Float, y2: Float, round: Boolean = false, onClick: () -> Unit) {
+                Box(
+                    Modifier
+                        .offset(x = sx * x1, y = sy * y1)
+                        .size(width = sx * (x2 - x1), height = sy * (y2 - y1))
+                        .clip(if (round) CircleShape else RoundedCornerShape(14.dp))
+                        .clickable(onClick = onClick)
+                )
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spot(840f, 45f, 925f, 120f, round = true, onClick = onSettings)
+            Spot(25f, 232f, 218f, 404f, onClick = onControlPhone)
+            Spot(722f, 232f, 917f, 404f, onClick = onOpenApp)
+            Spot(25f, 434f, 218f, 602f, onClick = onQuestions)
+            Spot(722f, 434f, 917f, 602f, onClick = onAgenda)
 
-            // ÉTAT DU SYSTÈME
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Panel,
-                shape = RoundedCornerShape(12.dp)
+            // Micro : halo animé pendant l'écoute ou la réflexion.
+            if (listening || thinking) {
+                Box(
+                    Modifier
+                        .offset(x = sx * 330f, y = sy * 967f)
+                        .size(width = sx * 280f, height = sx * 280f)
+                        .clip(CircleShape)
+                        .background((if (listening) Ready else Accent).copy(alpha = glow * 0.35f))
+                )
+            }
+            Spot(345f, 982f, 595f, 1232f, round = true, onClick = onMicrophone)
+
+            // Cadre d'état : on recouvre le texte de l'image avec l'état réel de Jarvis.
+            Box(
+                Modifier
+                    .offset(x = sx * 340f, y = sy * 1272f)
+                    .size(width = sx * 530f, height = sy * 112f)
+                    .background(Color(0xFF00050C)),
+                contentAlignment = Alignment.CenterStart
             ) {
-                Row(
-                    modifier = Modifier.padding(13.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(Modifier.padding(start = 4.dp)) {
                     Text(
-                        "●",
-                        color = if (listening) Color.Green else Accent
+                        when {
+                            listening -> "Je vous écoute…"
+                            thinking -> "Je réfléchis…"
+                            else -> "Jarvis est prêt !"
+                        },
+                        color = if (thinking) Accent else Ready,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
                     )
-                    Spacer(Modifier.width(10.dp))
                     Text(
-                        status,
+                        if (listening || thinking || lastReply.isBlank()) status.lowercase(Locale.FRENCH)
+                            .replaceFirstChar { it.uppercase() } else lastReply,
                         color = MainText,
-                        fontSize = 12.sp
+                        fontSize = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            // PARAMÈTRES IA
-            if (showSettings) {
-                Spacer(Modifier.height(14.dp))
+            // Barre du bas : Accueil, Fonctions, masque (micro), Outils, Paramètres.
+            Spot(40f, 1442f, 175f, 1582f) {}
+            Spot(215f, 1442f, 350f, 1582f, onClick = onFunctions)
+            Spot(395f, 1430f, 545f, 1590f, round = true, onClick = onMicrophone)
+            Spot(595f, 1442f, 730f, 1582f, onClick = onTools)
+            Spot(760f, 1442f, 915f, 1582f, onClick = onSettings)
+        }
+    }
+}
 
-                Text(
-                    "CONFIGURATION IA EN LIGNE",
-                    color = Accent,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
+@Composable
+private fun JarvisTopBar(title: String, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextButton(onClick = onBack) {
+            Text("← ACCUEIL", color = Accent)
+        }
+        Spacer(Modifier.weight(1f))
+        Text(
+            title,
+            color = Accent,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp
+        )
+    }
+}
 
-                Spacer(Modifier.height(8.dp))
+@Composable
+private fun JarvisPage(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(listOf(Color(0xFF09233B), Background, Color(0xFF01040A)))
+            )
+            .systemBarsPadding()
+            .padding(16.dp)
+    ) {
+        JarvisTopBar(title, onBack)
+        Spacer(Modifier.height(12.dp))
+        content()
+    }
+}
 
-                OutlinedTextField(
-                    value = endpoint,
-                    onValueChange = { endpoint = it },
-                    label = { Text("Adresse du service (compatible OpenAI)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+@Composable
+private fun ChatScreen(
+    messages: List<ChatMessage>,
+    input: String,
+    onInput: (String) -> Unit,
+    thinking: Boolean,
+    listening: Boolean,
+    status: String,
+    onSend: () -> Unit,
+    onMicrophone: () -> Unit,
+    onBack: () -> Unit
+) {
+    val listState = rememberLazyListState()
 
-                Spacer(Modifier.height(8.dp))
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    }
 
-                OutlinedTextField(
-                    value = model,
-                    onValueChange = { model = it },
-                    label = { Text("Modèle IA") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+    JarvisPage("CONVERSATION", onBack) {
+        Text(status, color = Muted, fontSize = 11.sp, letterSpacing = 1.sp)
+        Spacer(Modifier.height(8.dp))
 
-                Spacer(Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("Clé API") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        prefs.edit()
-                            .putString(ENDPOINT_KEY, endpoint.trim())
-                            .putString(MODEL_KEY, model.trim())
-                            .putString(API_KEY, apiKey.trim())
-                            .apply()
-                        showSettings = false
-                        status = "CONFIGURATION ENREGISTRÉE"
-                    },
-                    modifier = Modifier.fillMaxWidth()
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(messages) { message ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start
                 ) {
-                    Text("ENREGISTRER")
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-
-            // CONVERSATION
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(history) { message ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (message.fromUser) {
-                            Arrangement.End
-                        } else {
-                            Arrangement.Start
-                        }
+                    Surface(
+                        color = if (message.fromUser) Accent else Panel,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.widthIn(max = 300.dp)
                     ) {
-                        Surface(
-                            color = if (message.fromUser) Accent else Panel,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.widthIn(max = 300.dp)
-                        ) {
-                            Text(
-                                message.text,
-                                color = if (message.fromUser) Background else MainText,
-                                fontSize = 15.sp,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
+                        Text(
+                            message.text,
+                            color = if (message.fromUser) Background else MainText,
+                            fontSize = 15.sp,
+                            modifier = Modifier.padding(12.dp)
+                        )
                     }
                 }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // SAISIE ET MICRO
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    placeholder = { Text("Parle ou écris à JARVIS…", color = MutedText) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-
-                Spacer(Modifier.width(8.dp))
-
-                Button(
-                    onClick = { executeCommand(input) },
-                    enabled = input.isNotBlank() && !thinking
-                ) {
-                    Text("ENVOYER")
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Button(
-                onClick = {
-                    val granted = ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.RECORD_AUDIO
-                    ) == PackageManager.PERMISSION_GRANTED
-
-                    if (granted) {
-                        startListening()
-                    } else {
-                        microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                enabled = !thinking && !listening,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-            ) {
-                Text(
-                    when {
-                        thinking -> "RÉFLEXION…"
-                        listening -> "J'ÉCOUTE…"
-                        else -> "🎤 PARLER À JARVIS"
-                    },
-                    fontWeight = FontWeight.Bold
-                )
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInput,
+                placeholder = { Text("Écris à JARVIS…", color = Muted) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onSend() }),
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = onSend,
+                enabled = input.isNotBlank() && !thinking
+            ) {
+                Text("ENVOYER")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Button(
+            onClick = onMicrophone,
+            enabled = !thinking,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp)
+        ) {
+            Text(
+                when {
+                    thinking -> "RÉFLEXION…"
+                    listening -> "J'ÉCOUTE… (TOUCHER POUR ARRÊTER)"
+                    else -> "🎤 PARLER À JARVIS"
+                },
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun ToolsScreen(onCommand: (String) -> Unit, onBack: () -> Unit) {
+    val tools = listOf(
+        "Paramètres" to "ouvre les paramètres",
+        "Wi-Fi" to "ouvre le wifi",
+        "Bluetooth" to "ouvre bluetooth",
+        "Appareil photo" to "ouvre la caméra",
+        "Agenda" to "ouvre mon agenda",
+        "YouTube" to "ouvre youtube",
+        "Google" to "ouvre google",
+        "Quelle heure est-il ?" to "quelle heure",
+        "Quelle date ?" to "quelle date",
+        "Effacer la conversation" to "efface la conversation"
+    )
+
+    JarvisPage("OUTILS", onBack) {
+        Text("Contrôler mon téléphone", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(tools) { (label, command) ->
+                Surface(
+                    color = Panel,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onCommand(command) }
+                ) {
+                    Text(
+                        label,
+                        color = MainText,
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppsScreen(onOpened: (String) -> Unit, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val apps = remember {
+        val pm = context.packageManager
+        pm.queryIntentActivities(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+            0
+        )
+            .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+            .filter { it.second != context.packageName }
+            .distinctBy { it.second }
+            .sortedBy { it.first.lowercase(Locale.FRENCH) }
+    }
+
+    JarvisPage("APPLICATIONS", onBack) {
+        Text("Ouvrir une application", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(apps) { (label, pkg) ->
+                Surface(
+                    color = Panel,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            context.packageManager.getLaunchIntentForPackage(pkg)?.let {
+                                context.startActivity(it)
+                                onOpened(label)
+                            }
+                        }
+                ) {
+                    Text(
+                        label,
+                        color = MainText,
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    endpoint: String,
+    model: String,
+    apiKey: String,
+    onEndpoint: (String) -> Unit,
+    onModel: (String) -> Unit,
+    onApiKey: (String) -> Unit,
+    onSave: () -> Unit,
+    onClear: () -> Unit,
+    onBack: () -> Unit
+) {
+    JarvisPage("PARAMÈTRES", onBack) {
+        Text(
+            "CONFIGURATION IA EN LIGNE",
+            color = Accent,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = endpoint,
+            onValueChange = onEndpoint,
+            label = { Text("Adresse du service (compatible OpenAI)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = model,
+            onValueChange = onModel,
+            label = { Text("Modèle IA") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = onApiKey,
+            label = { Text("Clé API") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
+            Text("ENREGISTRER")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+            Text("EFFACER LA CONVERSATION", color = Accent)
+        }
+        Spacer(Modifier.height(8.dp))
+        val context = LocalContext.current
+        var wallpaperDone by remember { mutableStateOf(false) }
+        // L'image d'accueil de Jarvis devient le fond d'écran du téléphone (accueil et verrouillage).
+        OutlinedButton(
+            onClick = {
+                wallpaperDone = runCatching {
+                    android.app.WallpaperManager.getInstance(context).setResource(R.drawable.jarvis_home)
+                }.isSuccess
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (wallpaperDone) "FOND D'ÉCRAN APPLIQUÉ ✓" else "METTRE JARVIS EN FOND D'ÉCRAN",
+                color = Accent
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "Jarvis fonctionne sans clé pour ses commandes intégrées (heure, date, Wi-Fi, Bluetooth, agenda, applis…). " +
+                "La clé API active ses réponses intelligentes à toutes les questions.",
+            color = Muted,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Start
+        )
     }
 }
