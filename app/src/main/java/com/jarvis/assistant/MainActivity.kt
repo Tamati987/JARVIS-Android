@@ -217,9 +217,7 @@ fun JarvisScreen() {
         val savedKey = apiKey
 
         Thread {
-            val answer: String
-
-            try {
+            val answer: String = try {
                 val connection =
                     URL(savedEndpoint).openConnection() as HttpURLConnection
 
@@ -289,7 +287,7 @@ fun JarvisScreen() {
                     it.readText()
                 }
 
-                answer = if (code in 200..299) {
+                val result = if (code in 200..299) {
                     JSONObject(response)
                         .getJSONArray("choices")
                         .getJSONObject(0)
@@ -300,6 +298,7 @@ fun JarvisScreen() {
                 }
 
                 connection.disconnect()
+                result
             } catch (e: Exception) {
                 "Connexion impossible. Vérifie Internet et la configuration IA."
             }
@@ -635,3 +634,139 @@ fun JarvisScreen() {
                 OutlinedTextField(
                     value = endpoint,
                     onValueChange = { endpoint = it },
+                    label = { Text("Adresse du service (compatible OpenAI)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = model,
+                    onValueChange = { model = it },
+                    label = { Text("Modèle IA") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text("Clé API") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        prefs.edit()
+                            .putString(ENDPOINT_KEY, endpoint.trim())
+                            .putString(MODEL_KEY, model.trim())
+                            .putString(API_KEY, apiKey.trim())
+                            .apply()
+                        showSettings = false
+                        status = "CONFIGURATION ENREGISTRÉE"
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("ENREGISTRER")
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            // CONVERSATION
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(history) { message ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (message.fromUser) {
+                            Arrangement.End
+                        } else {
+                            Arrangement.Start
+                        }
+                    ) {
+                        Surface(
+                            color = if (message.fromUser) Accent else Panel,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.widthIn(max = 300.dp)
+                        ) {
+                            Text(
+                                message.text,
+                                color = if (message.fromUser) Background else MainText,
+                                fontSize = 15.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // SAISIE ET MICRO
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = { Text("Parle ou écris à JARVIS…", color = MutedText) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                Button(
+                    onClick = { executeCommand(input) },
+                    enabled = input.isNotBlank() && !thinking
+                ) {
+                    Text("ENVOYER")
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    val granted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                    if (granted) {
+                        startListening()
+                    } else {
+                        microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                enabled = !thinking && !listening,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+            ) {
+                Text(
+                    when {
+                        thinking -> "RÉFLEXION…"
+                        listening -> "J'ÉCOUTE…"
+                        else -> "🎤 PARLER À JARVIS"
+                    },
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
